@@ -16,7 +16,7 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
 .section-title { margin-top:25px; margin-bottom:5px; }
 
 .calendar-container { margin-top:15px; display:flex; flex-direction:column; gap:20px; }
-.calendar-month { border:1px solid #ccc; padding:8px; box-sizing:border-box; background:#fff; }
+.calendar-month { border:1px solid #ccc; padding:8px; background:#fff; }
 .calendar-month h4 { text-align:center; margin:5px 0 8px; }
 .calendar-table { width:100%; border-collapse:collapse; font-size:0.8em; }
 .calendar-table th, .calendar-table td {
@@ -25,7 +25,6 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
   height:32px;
   text-align:center;
   vertical-align:middle;
-  position:relative;
 }
 .calendar-table th { background:#f0f0f0; }
 
@@ -115,7 +114,8 @@ const personColors = {
   "Malin": "#b3ffb3",
   "Glenn": "#b3d1ff",
   "Anna": "#d9b3ff",
-  "Barn": "#fff7b3"
+  "Barn": "#fff7b3",
+  "Övrig": "#e6e6e6"
 };
 
 let bookings = [];
@@ -149,10 +149,13 @@ function calculateCost(from, to, rate) {
   return weeks * rate;
 }
 
-
 function updateCost() {
   const owner = ownerEl.value;
-  if (owner !== "Barn" && owner !== "Övrig") return;
+
+  if (owner !== "Barn" && owner !== "Övrig") {
+    costBoxEl.textContent = "";
+    return;
+  }
 
   const rate = owner === "Barn" ? 500 : 1000;
   const cost = calculateCost(fromEl.value, toEl.value, rate);
@@ -177,7 +180,7 @@ function getLastSummerVisitors() {
     if (year === lastYear && isSummer(b.from) && isSummer(b.to)) {
       if (countDays(b.from, b.to) >= 3) {
         const base = b.owner.split(" ")[0];
-        if (base !== "Barn") visitors.add(base);
+        if (base !== "Barn" && base !== "Övrig") visitors.add(base);
       }
     }
   });
@@ -200,21 +203,22 @@ function addBooking() {
   if (!owner || !from || !to) return alert("Fyll i alla fält.");
   if (new Date(to) < new Date(from)) return alert("Slutdatum kan inte vara före startdatum.");
 
-let rate = 0;
+  let rate = 0;
+  let cost = 0;
 
-if (owner === "Barn") {
+  if (owner === "Barn") {
     if (!responsible) return alert("Barn måste välja ett ansvarigt syskon.");
     owner = "Barn (ansvarig: " + responsible + ")";
     rate = 500;
-}
+  }
 
-if (owner === "Övrig") {
+  if (owner === "Övrig") {
     if (!responsible) return alert("Övrig måste välja ett ansvarigt syskon.");
     owner = "Övrig (ansvarig: " + responsible + ")";
     rate = 1000;
-}
+  }
 
-if (rate > 0) {
+  if (rate > 0) {
     cost = calculateCost(from, to, rate);
   }
 
@@ -234,8 +238,7 @@ if (rate > 0) {
 
       if (isSummer(from) && isSummer(b.from)) {
         if (baseNew !== "Barn" && baseNew !== "Övrig" &&
-    baseOld !== "Barn" && baseOld !== "Övrig") {
-
+            baseOld !== "Barn" && baseOld !== "Övrig") {
           if (lastSummer.has(baseOld) && !lastSummer.has(baseNew)) b.losesTo = owner;
           if (lastSummer.has(baseNew) && !lastSummer.has(baseOld)) losesTo = b.owner;
         }
@@ -269,6 +272,11 @@ function editBooking(i) {
   const b = bookings[i];
   if (b.owner.startsWith("Barn")) {
     ownerEl.value = "Barn";
+    respEl.style.display = "block";
+    respLabelEl.style.display = "block";
+    respEl.value = b.owner.split(": ")[1].replace(")", "");
+  } else if (b.owner.startsWith("Övrig")) {
+    ownerEl.value = "Övrig";
     respEl.style.display = "block";
     respLabelEl.style.display = "block";
     respEl.value = b.owner.split(": ")[1].replace(")", "");
@@ -420,18 +428,17 @@ function renderStats() {
   const statsDiv = document.getElementById("statsContent");
   statsDiv.innerHTML = "";
 
-const names = ["Jenny","Malin","Dennis","Glenn","Anna","Barn","Övrig"];
-
-  const totalsDays = { Jenny:0, Malin:0, Dennis:0, Glenn:0, Anna:0, Barn:0 };
-  const totalsCost = { Barn:0 };
+  const names = ["Jenny","Malin","Dennis","Glenn","Anna","Barn","Övrig"];
+  const totalsDays = { Jenny:0, Malin:0, Dennis:0, Glenn:0, Anna:0, Barn:0, Övrig:0 };
+  const totalsCost = { Barn:0, Övrig:0 };
 
   bookings.forEach(b => {
     const year = parseInt(b.from.split("-")[0], 10);
     if (year === currentYear) {
       const base = b.owner.split(" ")[0];
       totalsDays[base] += countDays(b.from, b.to);
-      if (base === "Övrig") totalsCost["Övrig"] = (totalsCost["Övrig"] || 0) + b.cost;
-
+      if (base === "Barn") totalsCost.Barn += b.cost;
+      if (base === "Övrig") totalsCost.Övrig += b.cost;
     }
   });
 
@@ -439,6 +446,8 @@ const names = ["Jenny","Malin","Dennis","Glenn","Anna","Barn","Övrig"];
   names.forEach(n => {
     if (n === "Barn") {
       html += `<li>${n}: ${totalsDays[n]} dagar – Kostnad: ${totalsCost.Barn} kr</li>`;
+    } else if (n === "Övrig") {
+      html += `<li>${n}: ${totalsDays[n]} dagar – Kostnad: ${totalsCost.Övrig} kr</li>`;
     } else {
       html += `<li>${n}: ${totalsDays[n]} dagar</li>`;
     }
