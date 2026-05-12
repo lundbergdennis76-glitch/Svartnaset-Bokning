@@ -175,6 +175,7 @@ function countDays(from, to) {
 function getLastSummerVisitors() {
   const lastYear = currentYear - 1;
   const visitors = new Set();
+
   bookings.forEach(b => {
     const year = parseInt(b.from.split("-")[0], 10);
     if (year === lastYear && isSummer(b.from) && isSummer(b.to)) {
