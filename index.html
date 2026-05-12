@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<title>Sommarstugan – Bokning</title>
+
+<style>
+body { font-family: Arial, sans-serif; background:#f2f2f2; }
+.box { background:#fff; padding:20px; max-width:900px; margin:20px auto; box-shadow:0 0 5px rgba(0,0,0,0.1); }
+button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:border-box; }
+.booking { border:1px solid #ccc; padding:10px; margin-top:10px; }
+.conflict { background:#ffe6e6; }
+.ok { background:#e6ffe6; }
+.actions button { margin-top:5px; width:auto; margin-right:5px; }
+
+.section-title { margin-top:25px; margin-bottom:5px; }
+
+.calendar-container { margin-top:15px; display:flex; flex-direction:column; gap:20px; }
+.calendar-month { border:1px solid #ccc; padding:8px; box-sizing:border-box; background:#fff; }
+.calendar-month h4 { text-align:center; margin:5px 0 8px; }
+.calendar-table { width:100%; border-collapse:collapse; font-size:0.8em; }
+.calendar-table th, .calendar-table td {
+  border:1px solid #ddd;
+  width:14.28%;
+  height:32px;
+  text-align:center;
+  vertical-align:middle;
+  position:relative;
+}
+.calendar-table th { background:#f0f0f0; }
+
+.cal-empty { background:#fafafa; }
+.cal-conflict { background:#ffb3b3; }
+.cal-priority { box-shadow:0 0 0 2px #b366ff inset; }
+
+.calendar-day-label { font-weight:bold; font-size:0.8em; }
+.calendar-name { font-size:0.7em; }
+
+.info-box { margin-top:15px; padding:10px; border:1px solid #ccc; background:#fafafa; font-size:0.9em; }
+.info-box h4 { margin:0 0 5px; }
+
+#costBox {
+  margin-top:10px;
+  padding:10px;
+  background:#fff7d6;
+  border:1px solid #e6c878;
+  display:none;
+  font-weight:bold;
+}
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>Bokning av sommarstugan</h2>
+
+  <label>Vem bokar?</label>
+  <select id="owner">
+    <option value="">Välj</option>
+    <option>Jenny</option>
+    <option>Malin</option>
+    <option>Dennis</option>
+    <option>Glenn</option>
+    <option>Anna</option>
+    <option>Barn</option>
+    <option>Övrig</option>
+  </select>
+
+  <label id="responsibleLabel" style="display:none;">Ansvarigt syskon</label>
+  <select id="responsible" style="display:none;">
+    <option value="">Välj syskon</option>
+    <option>Jenny</option>
+    <option>Malin</option>
+    <option>Dennis</option>
+    <option>Glenn</option>
+    <option>Anna</option>
+  </select>
+
+  <label>Från</label>
+  <input type="date" id="from">
+
+  <label>Till</label>
+  <input type="date" id="to">
+
+  <div id="costBox">Kostnad: 0 kr</div>
+
+  <button type="button" onclick="addBooking()">Spara bokning</button>
+
+  <h3 class="section-title">Bokningar</h3>
+  <div id="list"></div>
+
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px;">
+      <button onclick="prevYear()" style="width:auto;">« Föregående år</button>
+      <h3 id="yearTitle">Årsöversikt</h3>
+      <button onclick="nextYear()" style="width:auto;">Nästa år »</button>
+  </div>
+
+  <div id="calendar" class="calendar-container"></div>
+
+  <div id="stats" class="info-box">
+    <h4>Statistik – antal dagar och kostnad</h4>
+    <div id="statsContent"></div>
+  </div>
+
+  <div id="lastSummerBox" class="info-box">
+    <h4>Förra sommaren (minst 3 dagar i juni–augusti)</h4>
+    <div id="lastSummerContent"></div>
+  </div>
+</div>
+<script>
+let currentYear = new Date().getFullYear();
+
+const personColors = {
+  "Dennis": "#ffb347",
+  "Jenny": "#ffb3d9",
+  "Malin": "#b3ffb3",
+  "Glenn": "#b3d1ff",
+  "Anna": "#d9b3ff",
+  "Barn": "#fff7b3"
+};
+
+let bookings = [];
+
+const ownerEl = document.getElementById("owner");
+const respEl = document.getElementById("responsible");
+const respLabelEl = document.getElementById("responsibleLabel");
+const fromEl = document.getElementById("from");
+const toEl = document.getElementById("to");
+const costBoxEl = document.getElementById("costBox");
+
+ownerEl.addEventListener("change", updateCostVisibility);
+fromEl.addEventListener("change", updateCost);
+toEl.addEventListener("change", updateCost);
+
+function updateCostVisibility() {
+  const owner = ownerEl.value;
+  const needsResponsible = (owner === "Barn" || owner === "Övrig");
+
+  respEl.style.display = needsResponsible ? "block" : "none";
+  respLabelEl.style.display = needsResponsible ? "block" : "none";
+  costBoxEl.style.display = needsResponsible ? "block" : "none";
+
+  updateCost();
+}
+
+function calculateCost(from, to, rate) {
+  if (!from || !to) return 0;
+  const days = (new Date(to) - new Date(from)) / (1000*60*60*24) + 1;
+  const weeks = Math.ceil(days / 7);
+  return weeks * rate;
+}
+
+
+function updateCost() {
+  const owner = ownerEl.value;
+  if (owner !== "Barn" && owner !== "Övrig") return;
+
+  const rate = owner === "Barn" ? 500 : 1000;
+  const cost = calculateCost(fromEl.value, toEl.value, rate);
+
+  costBoxEl.textContent = "Kostnad: " + cost + " kr";
+}
+
+function isSummer(dateStr) {
+  const month = parseInt(dateStr.split("-")[1], 10);
+  return month >= 6 && month <= 8;
+}
+
+function countDays(from, to) {
+  return (new Date(to) - new Date(from)) / (1000*60*60*24) + 1;
+}
+
+function getLastSummerVisitors() {
+  const lastYear = currentYear - 1;
+  const visitors = new Set();
+  bookings.forEach(b => {
+    const year = parseInt(b.from.split("-")[0], 10);
+    if (year === lastYear && isSummer(b.from) && isSummer(b.to)) {
+      if (countDays(b.from, b.to) >= 3) {
+        const base = b.owner.split(" ")[0];
+        if (base !== "Barn") visitors.add(base);
+      }
+    }
+  });
+  return visitors;
+}
+
+function getOverlapRange(aFrom, aTo, bFrom, bTo) {
+  const start = aFrom > bFrom ? aFrom : bFrom;
+  const end = aTo < bTo ? aTo : bTo;
+  if (start <= end) return { from: start, to: end };
+  return null;
+}
+
+function addBooking() {
+  let owner = ownerEl.value;
+  const responsible = respEl.value;
+  const from = fromEl.value;
+  const to = toEl.value;
+
+  if (!owner || !from || !to) return alert("Fyll i alla fält.");
+  if (new Date(to) < new Date(from)) return alert("Slutdatum kan inte vara före startdatum.");
+
+let rate = 0;
+
+if (owner === "Barn") {
+    if (!responsible) return alert("Barn måste välja ett ansvarigt syskon.");
+    owner = "Barn (ansvarig: " + responsible + ")";
+    rate = 500;
+}
+
+if (owner === "Övrig") {
+    if (!responsible) return alert("Övrig måste välja ett ansvarigt syskon.");
+    owner = "Övrig (ansvarig: " + responsible + ")";
+    rate = 1000;
+}
+
+if (rate > 0) {
+    cost = calculateCost(from, to, rate);
+  }
+
+  const conflictWith = [];
+  let losesTo = null;
+  const lastSummer = getLastSummerVisitors();
+
+  bookings.forEach(b => {
+    const overlap = getOverlapRange(from, to, b.from, b.to);
+    if (overlap) {
+      const baseNew = owner.split(" ")[0];
+      const baseOld = b.owner.split(" ")[0];
+
+      conflictWith.push({ owner: b.owner, from: overlap.from, to: overlap.to });
+      b.conflict = true;
+      b.conflictWith.push({ owner, from: overlap.from, to: overlap.to });
+
+      if (isSummer(from) && isSummer(b.from)) {
+        if (baseNew !== "Barn" && baseNew !== "Övrig" &&
+    baseOld !== "Barn" && baseOld !== "Övrig") {
+
+          if (lastSummer.has(baseOld) && !lastSummer.has(baseNew)) b.losesTo = owner;
+          if (lastSummer.has(baseNew) && !lastSummer.has(baseOld)) losesTo = b.owner;
+        }
+      }
+    }
+  });
+
+  bookings.push({ owner, from, to, conflict: conflictWith.length > 0, conflictWith, losesTo, cost });
+  clearForm();
+  renderAll();
+}
+
+function clearForm() {
+  ownerEl.value = "";
+  respEl.value = "";
+  respEl.style.display = "none";
+  respLabelEl.style.display = "none";
+  fromEl.value = "";
+  toEl.value = "";
+  costBoxEl.style.display = "none";
+}
+
+function deleteBooking(i) {
+  if (confirm("Ta bort bokningen?")) {
+    bookings.splice(i, 1);
+    renderAll();
+  }
+}
+
+function editBooking(i) {
+  const b = bookings[i];
+  if (b.owner.startsWith("Barn")) {
+    ownerEl.value = "Barn";
+    respEl.style.display = "block";
+    respLabelEl.style.display = "block";
+    respEl.value = b.owner.split(": ")[1].replace(")", "");
+  } else {
+    ownerEl.value = b.owner;
+  }
+  fromEl.value = b.from;
+  toEl.value = b.to;
+  updateCostVisibility();
+  updateCost();
+  bookings.splice(i, 1);
+  renderAll();
+}
+
+function renderAll() {
+  renderList();
+  renderCalendar();
+  renderStats();
+  renderLastSummer();
+}
+
+function renderList() {
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  bookings.sort((a, b) => new Date(a.from) - new Date(b.from));
+
+  bookings.forEach((b, i) => {
+    const div = document.createElement("div");
+    div.className = "booking " + (b.conflict ? "conflict" : "ok");
+
+    let text = `<strong>${b.owner}</strong>: ${b.from} – ${b.to}<br>`;
+    if (b.cost > 0) text += `Kostnad: ${b.cost} kr<br>`;
+
+    if (b.conflict) {
+      text += "⚠️ Krock:<br>";
+      b.conflictWith.forEach(c => text += `- ${c.owner}: ${c.from} – ${c.to}<br>`);
+      text += b.losesTo ? `➡️ Förtur: ${b.losesTo}` : "➡️ Ingen tydlig förtur";
+    } else {
+      text += "✅ Ingen krock";
+    }
+
+    div.innerHTML = text + `
+      <div class="actions">
+        <button onclick="editBooking(${i})">Ändra</button>
+        <button onclick="deleteBooking(${i})">Ta bort</button>
+      </div>`;
+    list.appendChild(div);
+  });
+}
+
+function prevYear() { currentYear--; renderAll(); }
+function nextYear() { currentYear++; renderAll(); }
+
+function renderCalendar() {
+  const container = document.getElementById("calendar");
+  container.innerHTML = "";
+  const year = currentYear;
+  document.getElementById("yearTitle").textContent = "Årsöversikt " + year;
+
+  const monthNames = ["Januari","Februari","Mars","April","Maj","Juni","Juli","Augusti","September","Oktober","November","December"];
+
+  for (let m = 0; m < 12; m++) {
+    const monthDiv = document.createElement("div");
+    monthDiv.className = "calendar-month";
+    monthDiv.innerHTML = `<h4>${monthNames[m]} ${year}</h4>`;
+
+    const table = document.createElement("table");
+    table.className = "calendar-table";
+
+    const thead = document.createElement("thead");
+    thead.innerHTML = "<tr><th>Må</th><th>Ti</th><th>On</th><th>To</th><th>Fr</th><th>Lö</th><th>Sö</th></tr>";
+    table.appendChild(thead);
+
+    const firstDay = new Date(year, m, 1);
+    const lastDay = new Date(year, m+1, 0);
+    const startWeekday = (firstDay.getDay() + 6) % 7;
+    const daysInMonth = lastDay.getDate();
+
+    const tbody = document.createElement("tbody");
+    let row = document.createElement("tr");
+    let cellCount = 0;
+
+    for (let i = 0; i < startWeekday; i++) {
+      row.innerHTML += `<td class="cal-empty"></td>`;
+      cellCount++;
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      if (cellCount === 7) {
+        tbody.appendChild(row);
+        row = document.createElement("tr");
+        cellCount = 0;
+      }
+
+      const dateStr = `${year}-${String(m+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+      const cell = document.createElement("td");
+      cell.innerHTML = `<div class="calendar-day-label">${day}</div>`;
+
+      const bookingsThatDay = bookings.filter(b => {
+        const d = new Date(dateStr);
+        return d >= new Date(b.from) && d <= new Date(b.to);
+      });
+
+      if (bookingsThatDay.length === 0) {
+        cell.classList.add("cal-empty");
+      } else {
+        const hasConflict = bookingsThatDay.length > 1;
+        const hasPriority = bookingsThatDay.some(b => b.losesTo);
+
+        if (hasConflict) {
+          cell.classList.add("cal-conflict");
+        } else {
+          const base = bookingsThatDay[0].owner.split(" ")[0];
+          cell.style.background = personColors[base] || "#cfe4ff";
+        }
+
+        if (hasPriority) cell.classList.add("cal-priority");
+
+        const names = bookingsThatDay.map(b => {
+          const costText = b.cost > 0 ? ` (${b.cost} kr)` : "";
+          return b.owner + costText;
+        });
+
+        const nameDiv = document.createElement("div");
+        nameDiv.className = "calendar-name";
+        nameDiv.textContent = names.join(", ");
+        cell.appendChild(nameDiv);
+
+        cell.title = names.join("\n");
+      }
+
+      row.appendChild(cell);
+      cellCount++;
+    }
+
+    while (cellCount > 0 && cellCount < 7) {
+      row.innerHTML += `<td class="cal-empty"></td>`;
+      cellCount++;
+    }
+
+    tbody.appendChild(row);
+    table.appendChild(tbody);
+    monthDiv.appendChild(table);
+    container.appendChild(monthDiv);
+  }
+}
+
+function renderStats() {
+  const statsDiv = document.getElementById("statsContent");
+  statsDiv.innerHTML = "";
+
+const names = ["Jenny","Malin","Dennis","Glenn","Anna","Barn","Övrig"];
+
+  const totalsDays = { Jenny:0, Malin:0, Dennis:0, Glenn:0, Anna:0, Barn:0 };
+  const totalsCost = { Barn:0 };
+
+  bookings.forEach(b => {
+    const year = parseInt(b.from.split("-")[0], 10);
+    if (year === currentYear) {
+      const base = b.owner.split(" ")[0];
+      totalsDays[base] += countDays(b.from, b.to);
+      if (base === "Övrig") totalsCost["Övrig"] = (totalsCost["Övrig"] || 0) + b.cost;
+
+    }
+  });
+
+  let html = "<ul>";
+  names.forEach(n => {
+    if (n === "Barn") {
+      html += `<li>${n}: ${totalsDays[n]} dagar – Kostnad: ${totalsCost.Barn} kr</li>`;
+    } else {
+      html += `<li>${n}: ${totalsDays[n]} dagar</li>`;
+    }
+  });
+  html += "</ul>";
+
+  statsDiv.innerHTML = html;
+}
+
+function renderLastSummer() {
+  const div = document.getElementById("lastSummerContent");
+  const visitors = getLastSummerVisitors();
+  div.textContent = visitors.size === 0
+    ? "Ingen var i stugan minst 3 dagar förra sommaren."
+    : "Förra sommaren var i stugan: " + Array.from(visitors).join(", ");
+}
+
+renderAll();
+</script>
