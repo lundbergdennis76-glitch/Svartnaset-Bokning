@@ -125,6 +125,7 @@ const firebaseConfig = {
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+console.log("Firebase OK:", db);
   const bookingsCollection = collection(db, "bookings");
 
   const SYSKON = ["Jenny","Malin","Dennis","Glenn","Anna"];
