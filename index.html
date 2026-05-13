@@ -149,7 +149,7 @@ const firebaseConfig = {
   const toEl = document.getElementById("to");
   const costBoxEl = document.getElementById("costBox");
 
-  document.getElementById("saveBtn").addEventListener("click", addBooking());
+  document.getElementById("saveBtn").addEventListener("click", addBooking);
   document.getElementById("prevYearBtn").addEventListener("click", () => { currentYear--; renderAll(); });
   document.getElementById("nextYearBtn").addEventListener("click", () => { currentYear++; renderAll(); });
 
