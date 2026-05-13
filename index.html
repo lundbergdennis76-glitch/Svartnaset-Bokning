@@ -102,20 +102,18 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
   </div>
 
   <div id="lastSummerBox" class="info-box">
-    <h4>Förra sommaren (minst 3 dagar i juni–augusti)</h4>
+    <h4>Senaste år i stugan per syskon</h4>
     <div id="lastSummerContent"></div>
   </div>
 </div>
 
-<!-- DEL 3 + 4 – Logik + Firebase -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
   import { 
     getFirestore, collection, addDoc, getDocs, deleteDoc, doc 
   } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-  // BYT UT DETTA MOT DIN EGEN KONFIGURATION FRÅN FIREBASE
- const firebaseConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyCbEzsSDaE0KjJ7Wx3Hi3BsHXt9_h5UXzQ",
   authDomain: "stugan-bokning.firebaseapp.com",
   projectId: "stugan-bokning",
@@ -129,7 +127,7 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
   const db = getFirestore(app);
   const bookingsCollection = collection(db, "bookings");
 
-  let currentYear = new Date().getFullYear();
+  const SYSKON = ["Jenny","Malin","Dennis","Glenn","Anna"];
 
   const personColors = {
     "Dennis": "#ffb347",
@@ -141,6 +139,7 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
     "Övrig": "#e6e6e6"
   };
 
+  let currentYear = new Date().getFullYear();
   let bookings = [];
 
   const ownerEl = document.getElementById("owner");
@@ -149,16 +148,14 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
   const fromEl = document.getElementById("from");
   const toEl = document.getElementById("to");
   const costBoxEl = document.getElementById("costBox");
-  const saveBtn = document.getElementById("saveBtn");
-  const prevYearBtn = document.getElementById("prevYearBtn");
-  const nextYearBtn = document.getElementById("nextYearBtn");
+
+  document.getElementById("saveBtn").addEventListener("click", () => addBooking());
+  document.getElementById("prevYearBtn").addEventListener("click", () => { currentYear--; renderAll(); });
+  document.getElementById("nextYearBtn").addEventListener("click", () => { currentYear++; renderAll(); });
 
   ownerEl.addEventListener("change", updateCostVisibility);
   fromEl.addEventListener("change", updateCost);
   toEl.addEventListener("change", updateCost);
-  saveBtn.addEventListener("click", addBooking);
-  prevYearBtn.addEventListener("click", () => { currentYear--; renderAll(); });
-  nextYearBtn.addEventListener("click", () => { currentYear++; renderAll(); });
 
   function updateCostVisibility() {
     const owner = ownerEl.value;
@@ -201,21 +198,27 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
     return (new Date(to) - new Date(from)) / (1000*60*60*24) + 1;
   }
 
-  function getLastSummerVisitors() {
-    const lastYear = currentYear - 1;
-    const visitors = new Set();
+  // Hitta senaste år i stugan för ett syskon (eller 0 om aldrig)
+  function getLastVisitYearFor(person) {
+    let lastYear = 0;
 
     bookings.forEach(b => {
+      const base = b.owner.split(" ")[0];
+      if (base !== person) return;
+
       const year = parseInt(b.from.split("-")[0], 10);
-      if (year === lastYear && isSummer(b.from) && isSummer(b.to)) {
-        if (countDays(b.from, b.to) >= 3) {
-          const base = b.owner.split(" ")[0];
-          if (base !== "Barn" && base !== "Övrig") visitors.add(base);
-        }
-      }
+      if (!isSummer(b.from) || !isSummer(b.to)) return;
+      if (countDays(b.from, b.to) < 3) return;
+
+      if (year > lastYear) lastYear = year;
     });
 
-    return visitors;
+    return lastYear;
+  }
+
+  // Ju lägre årtal, desto högre förtur. 0 = aldrig varit där = bäst.
+  function getPriorityYear(person) {
+    return getLastVisitYearFor(person); // 0 betyder bäst förtur
   }
 
   function getOverlapRange(aFrom, aTo, bFrom, bTo) {
@@ -255,26 +258,32 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
 
     const conflictWith = [];
     let losesTo = null;
-    const lastSummer = getLastSummerVisitors();
+
+    const baseNew = owner.split(" ")[0];
 
     bookings.forEach(b => {
       const overlap = getOverlapRange(from, to, b.from, b.to);
-      if (overlap) {
-        const baseNew = owner.split(" ")[0];
-        const baseOld = b.owner.split(" ")[0];
+      if (!overlap) return;
 
-        conflictWith.push({ owner: b.owner, from: overlap.from, to: overlap.to });
-        b.conflict = true;
-        b.conflictWith = b.conflictWith || [];
-        b.conflictWith.push({ owner, from: overlap.from, to: overlap.to });
+      const baseOld = b.owner.split(" ")[0];
 
-        if (isSummer(from) && isSummer(b.from)) {
-          if (baseNew !== "Barn" && baseNew !== "Övrig" &&
-              baseOld !== "Barn" && baseOld !== "Övrig") {
+      conflictWith.push({ owner: b.owner, from: overlap.from, to: overlap.to });
+      b.conflict = true;
+      b.conflictWith = b.conflictWith || [];
+      b.conflictWith.push({ owner, from: overlap.from, to: overlap.to });
 
-            if (lastSummer.has(baseOld) && !lastSummer.has(baseNew)) b.losesTo = owner;
-            if (lastSummer.has(baseNew) && !lastSummer.has(baseOld)) losesTo = b.owner;
-          }
+      const bothSyskon = SYSKON.includes(baseNew) && SYSKON.includes(baseOld);
+      const bothSummer = isSummer(from) && isSummer(to) && isSummer(b.from) && isSummer(b.to);
+      const bothLongEnough = countDays(from, to) >= 3 && countDays(b.from, b.to) >= 3;
+
+      if (bothSyskon && bothSummer && bothLongEnough) {
+        const pNew = getPriorityYear(baseNew);
+        const pOld = getPriorityYear(baseOld);
+
+        if (pNew < pOld) {
+          b.losesTo = owner;      // gamla bokningen förlorar mot nya
+        } else if (pOld < pNew) {
+          losesTo = b.owner;      // nya bokningen förlorar mot gamla
         }
       }
     });
@@ -328,7 +337,6 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
     updateCostVisibility();
     updateCost();
 
-    // Ta bort gamla bokningen i DB + lokalt, ny sparas när man klickar "Spara bokning"
     if (b.id) {
       deleteDoc(doc(db, "bookings", b.id));
     }
@@ -340,7 +348,7 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
     renderList();
     renderCalendar();
     renderStats();
-    renderLastSummer();
+    renderLastVisits();
   }
 
   function renderList() {
@@ -430,10 +438,10 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
 
           if (hasConflict) {
             cell.classList.add("cal-conflict");
-          } else {
-            const base = bookingsThatDay[0].owner.split(" ")[0];
-            cell.style.background = personColors[base] || "#cfe4ff";
           }
+
+          const base = bookingsThatDay[0].owner.split(" ")[0];
+          cell.style.background = personColors[base] || "#cfe4ff";
 
           if (hasPriority) cell.classList.add("cal-priority");
 
@@ -478,7 +486,7 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
       const year = parseInt(b.from.split("-")[0], 10);
       if (year === currentYear) {
         const base = b.owner.split(" ")[0];
-        totalsDays[base] += countDays(b.from, b.to);
+        totalsDays[base] = (totalsDays[base] || 0) + countDays(b.from, b.to);
         if (base === "Barn") totalsCost.Barn += b.cost || 0;
         if (base === "Övrig") totalsCost.Övrig += b.cost || 0;
       }
@@ -499,12 +507,19 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
     statsDiv.innerHTML = html;
   }
 
-  function renderLastSummer() {
+  function renderLastVisits() {
     const div = document.getElementById("lastSummerContent");
-    const visitors = getLastSummerVisitors();
-    div.textContent = visitors.size === 0
-      ? "Ingen var i stugan minst 3 dagar förra sommaren."
-      : "Förra sommaren var i stugan: " + Array.from(visitors).join(", ");
+    let html = "<ul>";
+    SYSKON.forEach(name => {
+      const year = getLastVisitYearFor(name);
+      if (year === 0) {
+        html += `<li>${name}: aldrig varit i stugan (bäst förtur)</li>`;
+      } else {
+        html += `<li>${name}: senast i stugan år ${year}</li>`;
+      }
+    });
+    html += "</ul>";
+    div.innerHTML = html;
   }
 
   async function loadBookingsFromDB() {
@@ -516,11 +531,9 @@ button, select, input { padding:8px; width:100%; margin-top:5px; box-sizing:bord
     renderAll();
   }
 
-  // Gör vissa funktioner globala för knapparna i HTML
   window.editBooking = editBooking;
   window.deleteBooking = deleteBooking;
 
-  // Start
   loadBookingsFromDB();
 </script>
 
